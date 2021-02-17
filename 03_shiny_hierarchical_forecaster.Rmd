@@ -1,0 +1,185 @@
+---
+title: "Hierarchical Forecaster"
+output: 
+    flexdashboard::flex_dashboard:
+        orientation: rows
+        theme:
+            bg: "#000000"
+            fg: "#18bc9c"
+            primary: "#2c3e50"
+            base_font: !expr bslib::font_google("Oswald")
+runtime: shiny
+---
+    
+    ```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+    echo    = FALSE,
+    message = FALSE, 
+    warning = FALSE
+)
+
+# IMPORTANT NOTE!!!
+# INSTALL DEVELOPMENT VERSION OF RMARKDOWN AND CROSSTALK
+# rmarkdown   * 2.6.6   2021-02-02 [1] Github (rstudio/rmarkdown@d8e7a15)
+
+# Run These:
+# remotes::install_github("rstudio/rmarkdown")
+# remotes::install_github("rstudio/crosstalk")
+
+library(shiny)
+library(collapsibleTree)
+library(plotly)
+    
+library(modeltime)
+library(modeltime.ensemble)
+library(tidymodels)
+    
+library(tidyverse)
+library(timetk)
+
+```
+
+
+```{r}
+hierarchy_tbl <- read_rds("m5-forecasting-accuracy/sales_sample_tbl.rds") %>%
+    select(contains("id"))
+
+full_data_tbl    <- read_rds("m5-forecasting-accuracy/full_data_tbl.rds")
+
+test_forecast_ensemble_tbl <- read_rds("m5-forecasting-accuracy/test_forecast_ensemble_tbl.rds")
+
+future_forecast_ensemble_tbl <- read_rds("m5-forecasting-accuracy/future_forecast_ensemble_tbl.rds")
+
+purchases_summarized_tbl <- full_data_tbl %>%
+    select(category, identifier, value) %>%
+    group_by(category, identifier) %>%
+    summarise(value = sum(value, na.rm = T)) %>%
+    ungroup() %>%
+    filter(category == 'item_id') %>%
+    left_join(hierarchy_tbl, by = c("identifier" = "item_id")) %>%
+    select(-id) 
+
+indicator_options <- full_data_tbl %>%
+    distinct(category, identifier) %>%
+    mutate(category = factor(
+        category, 
+        levels = c("all_stores_id", "state_id", "store_id", 
+                   "cat_id", "dept_id", "item_id"))
+    ) %>%
+    arrange(category, identifier) %>%
+    pull(identifier)
+```
+
+
+
+# Customer Exploration
+
+## Column {.sidebar}
+
+#### How it works
+
+__Customer Exploration__ is an important part of knowing:
+    
+- who will purchase
+- what they will purchase
+- and, when they will purchase
+
+This app aggregates customer purchasing behavior into a convenient tool. Simply click on Customer Segmentation Visualization to "Drill In" to Purchasing Behavior.
+<hr>
+    
+#### Select a Hierarchical Forecast
+    
+```{r}
+shiny::selectInput(
+    "indicator", 
+    label     = "Select a Hierarchy to Forecast",
+    choices   = indicator_options, 
+    selectize = TRUE
+)
+
+shiny::radioButtons(
+    inputId  = "lookback",
+    label    = "Time Zoom",
+    choices  = c("3 months", "6 months", "12 months", "2 year"),
+    selected = "6 months",
+    inline   = FALSE
+)
+
+```
+
+
+
+
+
+## Column 1
+
+### Product Hierarchy
+
+
+```{r}
+purchases_summarized_tbl %>%
+    collapsibleTree(
+        hierarchy = c("state_id", "store_id", "cat_id", "dept_id", "identifier"),
+        attribute = "value",
+        root      = "All Stores",
+        aggFun    = sum, 
+        nodeSize  = "value",
+        tooltip   = TRUE, 
+        fontSize  = 16
+    )
+```
+
+## Row {.tabset .tabset-fade}
+
+### Predicted Forecast (Next 28-Days)
+
+```{r}
+renderPlotly({
+    future_forecast_ensemble_tbl %>%
+    
+        # FILTERS 
+        filter(identifier %in% input$indicator) %>%
+        
+        group_by(identifier) %>%
+        
+        # Focus on end of series
+        filter_by_time(
+            .start_date = last(date) %-time% input$lookback, 
+            .end_date = "end"
+        ) %>%
+        
+        plot_modeltime_forecast(
+            .facet_ncol         = 2, 
+            .conf_interval_show = TRUE,
+            .interactive        = TRUE
+        )
+})
+
+```
+
+
+### Test Forecast
+
+```{r}
+renderPlotly({
+    test_forecast_ensemble_tbl %>%
+    
+        # FILTERS 
+        filter(identifier %in% input$indicator) %>%
+        
+        group_by(identifier) %>%
+        
+        # Focus on end of series
+        filter_by_time(
+            .start_date = last(date) %-time% input$lookback, 
+            .end_date = "end"
+        ) %>%
+        
+        plot_modeltime_forecast(
+            .facet_ncol         = 2, 
+            .conf_interval_show = TRUE,
+            .interactive        = TRUE
+        )
+})
+
+```

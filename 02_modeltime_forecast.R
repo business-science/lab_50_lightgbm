@@ -43,6 +43,7 @@ sales_sample_tbl
 
 hierarchy_tbl <- sales_sample_tbl %>% select(contains("id"))
 hierarchy_tbl
+    
 
 # * Reshape & Join ----
 
@@ -76,8 +77,6 @@ sales_sample_long_tbl %>%
 
 # PREPARE FULL DATA ----
 
-
-
 full_data_tbl <- sales_sample_long_tbl %>%
     
     # PERFORM HIERARCHICAL AGGREGATIONS
@@ -87,6 +86,7 @@ full_data_tbl <- sales_sample_long_tbl %>%
         names_to  = "category", 
         values_to = "identifier" 
     ) %>%
+    
     group_by(category, identifier, date) %>%
     summarise(value = sum(value, na.rm = TRUE)) %>%
     ungroup() %>%
@@ -116,9 +116,25 @@ full_data_tbl <- sales_sample_long_tbl %>%
 
 full_data_tbl %>% glimpse()
 
+full_data_tbl %>% skim()
+
 # full_data_tbl %>% write_rds("m5-forecasting-accuracy/full_data_tbl.rds")
 
 full_data_tbl <- read_rds("m5-forecasting-accuracy/full_data_tbl.rds")
+
+# OPTIONAL - ADD HIERARCHICAL FEATURES ----
+# - Tried with and without - Didn't improve very much
+#   - Why? Tree-based models are naturally hierarchical
+#   - Similar products naturally get lumped together
+#   - Similar locations naturally get lumped together
+# - Other alternatives (not explored)
+#   - Create 2 model strategies: aggregations and product-level
+
+# full_data_tbl <- full_data_tbl %>%
+#     left_join(
+#         hierarchy_tbl %>% select(-id),
+#         by = c("identifier" = "item_id")
+#     )
 
 # DATA PREPARED & FUTURE DATA ----
 
@@ -241,7 +257,7 @@ test_forecast_tbl <- calibration_tbl %>%
 #   - Switch these out
 
 # - All Stores Aggregated
-filter_identfiers_all_stores <- "all_stores"
+filter_identfiers_all <- "all_stores"
 
 # - State-Level Forecasts
 filter_identfiers_state <- full_data_tbl %>%
@@ -257,7 +273,7 @@ filter_identfiers_items <- item_id_sample
 test_forecast_tbl %>%
     
     # FILTER IDENTIFIERS
-    filter(identifier %in% filter_identfiers_items) %>%
+    filter(identifier %in% filter_identfiers_all) %>%
     
     group_by(identifier) %>%
     
@@ -295,6 +311,10 @@ best_rmse_by_indentifier_tbl <- accuracy_by_identifier_tbl %>%
     ungroup()
 
 best_rmse_by_indentifier_tbl %>% View()
+
+best_rmse_by_indentifier_tbl %>% 
+    group_by(category) %>%
+    summarise(median_rmse = median(rmse))
 
 best_rmse_by_indentifier_tbl %>% count(name, sort = TRUE)
 
