@@ -1,5 +1,5 @@
 # BUSINESS SCIENCE LEARNING LABS ----
-# LAB 50: LIGHTGBM ----
+# LAB 50: LIGHTGBM VS XGBOOST VS CATBOOST ----
 # MODULE 01: MODEL COMPARISONS ---- 
 # **** ----
 
@@ -137,7 +137,7 @@ agaricus_catboost_fit_wflw %>%
     rename(value = V1) %>%
     arrange(-value) %>%
     mutate(feature = as_factor(feature) %>% fct_rev()) %>%
-    slice(1:10) %>%
+    dplyr::slice(1:10) %>%
     ggplot(aes(value, feature)) +
     geom_col()
     

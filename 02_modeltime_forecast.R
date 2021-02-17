@@ -128,13 +128,15 @@ full_data_tbl <- read_rds("m5-forecasting-accuracy/full_data_tbl.rds")
 #   - Similar products naturally get lumped together
 #   - Similar locations naturally get lumped together
 # - Other alternatives (not explored)
-#   - Create 2 model strategies: aggregations and product-level
+#   1. Only model lowest level. Simply add to get aggegates.
+#   2. Create 2 model strategies: aggregations and product-level. 
+#      Model each strategy separately.
 
 # full_data_tbl <- full_data_tbl %>%
 #     left_join(
 #         hierarchy_tbl %>% select(-id),
 #         by = c("identifier" = "item_id")
-#     )
+#     ) %>% glimpse()
 
 # DATA PREPARED & FUTURE DATA ----
 
@@ -167,6 +169,8 @@ recipe_spec <- recipe(value ~ ., data = training(splits)) %>%
     step_dummy(all_nominal(), one_hot = TRUE)
 
 recipe_spec %>% summary()
+
+recipe_spec %>% prep() %>% summary()
 
 recipe_spec %>% prep() %>% juice() %>% glimpse()
 
@@ -222,7 +226,8 @@ wflw_catboost_defaults <- workflow() %>%
 wflw_catboost_tweedie <- workflow() %>%
     add_model(
         boost_tree(mode = "regression") %>%
-            set_engine("catboost", loss_function = "Tweedie:variance_power=1.5")
+            set_engine("catboost", 
+                       loss_function = "Tweedie:variance_power=1.5")
     ) %>%
     add_recipe(recipe_spec) %>%
     fit(training(splits))
@@ -273,13 +278,13 @@ filter_identfiers_items <- item_id_sample
 test_forecast_tbl %>%
     
     # FILTER IDENTIFIERS
-    filter(identifier %in% filter_identfiers_all) %>%
+    filter(identifier %in% filter_identfiers_items) %>%
     
     group_by(identifier) %>%
     
     # Focus on end of series
     filter_by_time(
-        .start_date = last(date) %-time% "3 month", 
+        .start_date = last(date) %-time% "3 month",
         .end_date = "end"
     ) %>%
     
@@ -358,7 +363,7 @@ future_forecast_ensemble_tbl <- ensemble_refit_tbl %>%
 future_forecast_ensemble_tbl %>%
     
     # FILTERS 
-    filter(identifier %in% filter_identfiers_items) %>%
+    filter(identifier %in% filter_identfiers_all) %>%
     
     group_by(identifier) %>%
     
@@ -384,3 +389,10 @@ future_forecast_ensemble_tbl %>%
 # - I cover these topics at length in my:
 #       High-Performance Time Series Forecasting Course (DS4B 203-R)
 
+# BONUS: XGBOOST FEATURE IMPORTANCE ----
+
+wflw_xgboost_defaults %>%
+    pull_workflow_fit() %>%
+    pluck("fit") %>%
+    xgboost::xgb.importance(model = .) %>%
+    xgboost::xgb.plot.importance()
