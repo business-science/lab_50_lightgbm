@@ -1,6 +1,6 @@
 # BUSINESS SCIENCE LEARNING LABS ----
 # LAB 50: LIGHTGBM ----
-# MODULE 02: FORECASTING WITH LIGHTGBM & FRIENDS ---- 
+# MODULE 02: HIERARCHICAL FORECASTING WITH LIGHTGBM & FRIENDS ---- 
 # **** ----
 
 # BUSINESS OBJECTIVE ----
@@ -41,7 +41,10 @@ calendar_tbl
 sales_sample_tbl <- read_rds("m5-forecasting-accuracy/sales_sample_tbl.rds")
 sales_sample_tbl
 
-# * Join ----
+hierarchy_tbl <- sales_sample_tbl %>% select(contains("id"))
+hierarchy_tbl
+
+# * Reshape & Join ----
 
 sales_sample_long_tbl <- sales_sample_tbl %>%
     pivot_longer(
@@ -73,8 +76,23 @@ sales_sample_long_tbl %>%
 
 # PREPARE FULL DATA ----
 
+
+
 full_data_tbl <- sales_sample_long_tbl %>%
-    group_by(item_id, dept_id, cat_id, store_id, state_id) %>%
+    
+    # PERFORM HIERARCHICAL AGGREGATIONS
+    add_column(all_stores_id = "all_stores", .before = 1) %>%
+    pivot_longer(
+        cols      = ends_with("_id"), 
+        names_to  = "category", 
+        values_to = "identifier" 
+    ) %>%
+    group_by(category, identifier, date) %>%
+    summarise(value = sum(value, na.rm = TRUE)) %>%
+    ungroup() %>%
+    
+    # APPLY TIME SERIES FEATURE ENGINEERING 
+    group_by(category, identifier) %>%
     
     # Fix any missing timestamps
     pad_by_time(date, .by = "day", .pad_value = 0) %>%
@@ -130,7 +148,6 @@ recipe_spec <- recipe(value ~ ., data = training(splits)) %>%
     update_role(row_id, date, new_role = "id") %>%
     step_timeseries_signature(date) %>%
     step_rm(matches("(.xts$)|(.iso$)|(hour)|(minute)|(second)|(am.pm)")) %>%
-    step_normalize(date_index.num, date_year) %>%
     step_dummy(all_nominal(), one_hot = TRUE)
 
 recipe_spec %>% summary()
@@ -211,15 +228,38 @@ calibration_tbl <- modeltime_table(
 
 calibration_tbl %>% modeltime_accuracy()
 
-# * Visualize ----
-calibration_tbl %>%
+# * Forecast Test ----
+
+test_forecast_tbl <- calibration_tbl %>%
     modeltime_forecast(
         new_data    = testing(splits),
         actual_data = data_prepared_tbl,
         keep_data   = TRUE 
-    ) %>%
-    filter(item_id %in% item_id_sample) %>%
-    group_by(item_id) %>%
+    )
+
+# * Create Visualization Filters -----
+#   - Switch these out
+
+# - All Stores Aggregated
+filter_identfiers_all_stores <- "all_stores"
+
+# - State-Level Forecasts
+filter_identfiers_state <- full_data_tbl %>%
+    filter(category == "state_id") %>%
+    distinct(identifier) %>%
+    pull()
+
+# - Item-Level Forecasts (Sample of 6)
+filter_identfiers_items <- item_id_sample 
+
+# * Visualize ----
+
+test_forecast_tbl %>%
+    
+    # FILTER IDENTIFIERS
+    filter(identifier %in% filter_identfiers_items) %>%
+    
+    group_by(identifier) %>%
     
     # Focus on end of series
     filter_by_time(
@@ -229,56 +269,82 @@ calibration_tbl %>%
     
     plot_modeltime_forecast(
         .facet_ncol         = 2, 
-        .conf_interval_show = TRUE,
+        .conf_interval_show = FALSE,
         .interactive        = TRUE
     )
 
-accuracy_by_item_tbl <- calibration_tbl %>%
-    modeltime_forecast(
-        new_data    = testing(splits),
-        actual_data = data_prepared_tbl,
-        keep_data   = TRUE 
-    ) %>%
-    select(item_id, .model_desc, .index, .value) %>%
+# * Accuracy by Identifier ----
+accuracy_by_identifier_tbl <- test_forecast_tbl %>%
+    select(category, identifier, .model_desc, .index, .value) %>%
     pivot_wider(
         names_from   = .model_desc,
         values_from  = .value
     ) %>%
     filter(!is.na(LIGHTGBM)) %>%
     pivot_longer(cols = LIGHTGBM:`CATBOOST - Tweedie`) %>%
-    group_by(item_id, name) %>%
+    group_by(category, identifier, name) %>%
     summarize_accuracy_metrics(
         truth      = ACTUAL, 
         estimate   = value, 
         metric_set = default_forecast_accuracy_metric_set()
     )
 
-accuracy_by_item_tbl %>%
-    group_by(item_id) %>%
-    slice_min(rmse) 
+best_rmse_by_indentifier_tbl <- accuracy_by_identifier_tbl %>%
+    group_by(identifier) %>%
+    slice_min(rmse, n = 1) %>%
+    ungroup()
+
+best_rmse_by_indentifier_tbl %>% View()
+
+best_rmse_by_indentifier_tbl %>% count(name, sort = TRUE)
 
 # ENSEMBLE ----
+
+# * Make an Ensemble ----
 
 ensemble_tbl <- calibration_tbl %>%
     filter(.model_id %in% c(2, 5)) %>%
     ensemble_weighted(loadings = c(2, 3)) %>%
     modeltime_table()
 
+test_forecast_ensemble_tbl <- ensemble_tbl %>%
+    modeltime_calibrate(testing(splits)) %>%
+    modeltime_forecast(
+        new_data    = testing(splits),
+        actual_data = data_prepared_tbl,
+        keep_data   = TRUE 
+    )
+
+# test_forecast_ensemble_tbl %>% 
+#     write_rds("m5-forecasting-accuracy/test_forecast_ensemble_tbl.rds")
+
+# * Refit Ensemble ----
+
 ensemble_refit_tbl <- ensemble_tbl %>%
     modeltime_refit(data_prepared_tbl)
 
-ensemble_refit_tbl %>%
+future_forecast_ensemble_tbl <- ensemble_refit_tbl %>%
     modeltime_forecast(
         new_data    = future_data_tbl,
         actual_data = data_prepared_tbl,
         keep_data   = TRUE 
-    ) %>%
-    filter(item_id %in% item_id_sample) %>%
-    group_by(item_id) %>%
+    )
+
+# future_forecast_ensemble_tbl %>% 
+#     write_rds("m5-forecasting-accuracy/future_forecast_ensemble_tbl.rds")
+
+# * Visualize Future Forecast ----
+
+future_forecast_ensemble_tbl %>%
+    
+    # FILTERS 
+    filter(identifier %in% filter_identfiers_items) %>%
+    
+    group_by(identifier) %>%
     
     # Focus on end of series
     filter_by_time(
-        .start_date = last(date) %-time% "3 month", 
+        .start_date = last(date) %-time% "6 month", 
         .end_date = "end"
     ) %>%
     
@@ -289,12 +355,12 @@ ensemble_refit_tbl %>%
     )
 
 # CONCLUSIONS ----
-# - Intermittent Demand Forecasting is a challenging problem
+# - Hierarchical Forecasting is a challenging problem
 # - XGBoost was the winner for this data set, but experimentation is critical
 # - Didn't cover:
-#   - Hyperparameter Tuning
+#   - Hyperparameter Tuning (Probably why CatBoost & LightGBM aren't as good)
 #   - More sophisticated ensembles
-#   - Deep Learning
+#   - Deep Learning (GluonTS)
 # - I cover these topics at length in my:
-#   High-Performance Time Series Forecasting Course (DS4B 203-R)
+#       High-Performance Time Series Forecasting Course (DS4B 203-R)
 
