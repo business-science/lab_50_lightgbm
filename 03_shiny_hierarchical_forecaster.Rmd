@@ -4,9 +4,9 @@ output:
     flexdashboard::flex_dashboard:
         orientation: rows
         theme:
-            bg: "#000000"
-            fg: "#18bc9c"
-            primary: "#2c3e50"
+            bg: "#FFFFFF"
+            fg: "#2c3e50"
+            primary: "#18bc9c"
             base_font: !expr bslib::font_google("Oswald")
 runtime: shiny
 ---
@@ -29,6 +29,7 @@ knitr::opts_chunk$set(
 library(shiny)
 library(collapsibleTree)
 library(plotly)
+library(DT)
     
 library(modeltime)
 library(modeltime.ensemble)
@@ -72,22 +73,17 @@ indicator_options <- full_data_tbl %>%
 
 
 
-# Customer Exploration
+# Product Exploration
 
 ## Column {.sidebar}
 
-#### How it works
+#### What it does
 
-__Customer Exploration__ is an important part of knowing:
-    
-- who will purchase
-- what they will purchase
-- and, when they will purchase
+Forecast any level within a __Product Hierarchy__.
 
-This app aggregates customer purchasing behavior into a convenient tool. Simply click on Customer Segmentation Visualization to "Drill In" to Purchasing Behavior.
 <hr>
     
-#### Select a Hierarchical Forecast
+#### How it works
     
 ```{r}
 shiny::selectInput(
@@ -99,15 +95,19 @@ shiny::selectInput(
 
 shiny::radioButtons(
     inputId  = "lookback",
-    label    = "Time Zoom",
-    choices  = c("3 months", "6 months", "12 months", "2 year"),
-    selected = "6 months",
+    label    = "Select a Look Back (Time Zoom)",
+    choices  = c("3 months", "6 months", "12 months", "2 years"),
+    selected = "2 years",
     inline   = FALSE
 )
 
 ```
 
+<hr>
 
+Created in __Learning Lab 50: Hierarchical Forecasting.__ 
+
+Learn more at [Business Science](https://www.business-science.io/)
 
 
 
@@ -117,16 +117,19 @@ shiny::radioButtons(
 
 
 ```{r}
-purchases_summarized_tbl %>%
-    collapsibleTree(
-        hierarchy = c("state_id", "store_id", "cat_id", "dept_id", "identifier"),
-        attribute = "value",
-        root      = "All Stores",
-        aggFun    = sum, 
-        nodeSize  = "value",
-        tooltip   = TRUE, 
-        fontSize  = 16
-    )
+renderCollapsibleTree({
+    purchases_summarized_tbl %>%
+        # filter(identifier %in% input$indicator) %>%
+        collapsibleTree(
+            hierarchy = c("state_id", "store_id", "cat_id", "dept_id", "identifier"),
+            attribute = "value",
+            root      = "All Stores",
+            aggFun    = sum, 
+            nodeSize  = "value",
+            tooltip   = TRUE, 
+            fontSize  = 16
+        )
+})
 ```
 
 ## Row {.tabset .tabset-fade}
@@ -183,3 +186,41 @@ renderPlotly({
 })
 
 ```
+
+### Test Accuracy
+
+```{r}
+accuracy_by_identifier_tbl <- test_forecast_ensemble_tbl %>%
+    select(category, identifier, .model_desc, .index, .value) %>%
+    pivot_wider(
+        names_from   = .model_desc,
+        values_from  = .value
+    ) %>%
+    drop_na() %>%
+    rename(PREDICTION = 5) %>%
+    group_by(category, identifier) %>%
+    summarize_accuracy_metrics(
+        truth      = ACTUAL, 
+        estimate   = PREDICTION, 
+        metric_set = default_forecast_accuracy_metric_set()
+    )
+
+renderDataTable({
+    df <- accuracy_by_identifier_tbl %>%
+        # FILTERS 
+        filter(identifier %in% input$indicator) %>%
+        mutate(across(c(mae, mape, rmse, smape), ~ round(., 1))) %>%
+        mutate(across(c(mase, rsq), ~ round(., 3))) 
+    
+    datatable(
+        data = df, 
+        options = list(
+          scrollX = TRUE, 
+          scrollY = TRUE,
+          dom     = 'Bfrtip',
+          buttons = c('copy', 'csv', 'excel')
+        )
+    )
+})
+```
+
