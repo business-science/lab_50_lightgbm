@@ -16,7 +16,7 @@
 
 # Machine Learning Packages
 library(lightgbm)
-library(catboost)
+# library(catboost)
 library(xgboost)
 
 # Tidymodels
@@ -120,26 +120,26 @@ agaricus_xgboost_fit_wflw %>%
     xgboost::xgb.importance(model = .) %>%
     xgboost::xgb.plot.importance()
 
-# * CatBoost ----
-
-agaricus_catboost_fit_wflw <- boost_tree(mode = "classification") %>%
-    set_engine("catboost") %>%
-    train_model(agaricus_train_tbl)
-
-agaricus_catboost_fit_wflw %>%
-    make_predictions(agaricus_test_tbl, type = "prob") %>%
-    yardstick::roc_auc(target, .pred_1, event_level = "second")
-
-agaricus_catboost_fit_wflw %>% 
-    extract_fitted_model() %>%
-    catboost::catboost.get_feature_importance() %>%
-    as_tibble(rownames = "feature") %>%
-    rename(value = V1) %>%
-    arrange(-value) %>%
-    mutate(feature = as_factor(feature) %>% fct_rev()) %>%
-    dplyr::slice(1:10) %>%
-    ggplot(aes(value, feature)) +
-    geom_col()
+# # * CatBoost ----
+# 
+# agaricus_catboost_fit_wflw <- boost_tree(mode = "classification") %>%
+#     set_engine("catboost") %>%
+#     train_model(agaricus_train_tbl)
+# 
+# agaricus_catboost_fit_wflw %>%
+#     make_predictions(agaricus_test_tbl, type = "prob") %>%
+#     yardstick::roc_auc(target, .pred_1, event_level = "second")
+# 
+# agaricus_catboost_fit_wflw %>% 
+#     extract_fitted_model() %>%
+#     catboost::catboost.get_feature_importance() %>%
+#     as_tibble(rownames = "feature") %>%
+#     rename(value = V1) %>%
+#     arrange(-value) %>%
+#     mutate(feature = as_factor(feature) %>% fct_rev()) %>%
+#     dplyr::slice(1:10) %>%
+#     ggplot(aes(value, feature)) +
+#     geom_col()
     
 
 
@@ -176,21 +176,21 @@ resamples_lightgbm_tbl <- workflow() %>%
     )
 
 # * Catboost ----
-doParallel::registerDoParallel(8)
-resamples_catboost_tbl <- workflow() %>%
-    add_model(boost_tree(mode = 'regression') %>% set_engine("catboost")) %>%
-    add_recipe(recipe_spec) %>%
-    fit_resamples(
-        resamples = diamonds_splits,
-        control   = control_resamples(verbose = TRUE, allow_par = TRUE)
-    )
-
+# doParallel::registerDoParallel(8)
+# resamples_catboost_tbl <- workflow() %>%
+#     add_model(boost_tree(mode = 'regression') %>% set_engine("catboost")) %>%
+#     add_recipe(recipe_spec) %>%
+#     fit_resamples(
+#         resamples = diamonds_splits,
+#         control   = control_resamples(verbose = TRUE, allow_par = TRUE)
+#     )
+# 
 
 
 # * Comparison ----
 
 bind_rows(
-    resamples_catboost_tbl %>% collect_metrics() %>% add_column(.model = "catboost"),
+    # resamples_catboost_tbl %>% collect_metrics() %>% add_column(.model = "catboost"),
     resamples_lightgbm_tbl %>% collect_metrics() %>% add_column(.model = "lightgbm"),
     resamples_xgboost_tbl %>% collect_metrics() %>% add_column(.model = "xgboost")
 )

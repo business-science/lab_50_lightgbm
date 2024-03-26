@@ -17,7 +17,7 @@
 
 # Machine Learning
 library(lightgbm)
-library(catboost)
+# library(catboost) 
 library(xgboost)
 
 # Tidymodels
@@ -214,23 +214,23 @@ wflw_xgboost_tweedie <- workflow() %>%
     fit(training(splits))
 
 # * CATBOOST ----
-
-wflw_catboost_defaults <- workflow() %>%
-    add_model(
-        boost_tree(mode = "regression") %>%
-            set_engine("catboost")
-    ) %>%
-    add_recipe(recipe_spec) %>%
-    fit(training(splits))
-
-wflw_catboost_tweedie <- workflow() %>%
-    add_model(
-        boost_tree(mode = "regression") %>%
-            set_engine("catboost", 
-                       loss_function = "Tweedie:variance_power=1.5")
-    ) %>%
-    add_recipe(recipe_spec) %>%
-    fit(training(splits))
+# 
+# wflw_catboost_defaults <- workflow() %>%
+#     add_model(
+#         boost_tree(mode = "regression") %>%
+#             set_engine("catboost")
+#     ) %>%
+#     add_recipe(recipe_spec) %>%
+#     fit(training(splits))
+# 
+# wflw_catboost_tweedie <- workflow() %>%
+#     add_model(
+#         boost_tree(mode = "regression") %>%
+#             set_engine("catboost", 
+#                        loss_function = "Tweedie:variance_power=1.5")
+#     ) %>%
+#     add_recipe(recipe_spec) %>%
+#     fit(training(splits))
 
 
 # MODELTIME ----
@@ -239,10 +239,10 @@ wflw_catboost_tweedie <- workflow() %>%
 calibration_tbl <- modeltime_table(
     wflw_lightgbm_defaults,
     wflw_xgboost_defaults,
-    wflw_catboost_defaults,
+    # wflw_catboost_defaults,
     wflw_lightgbm_tweedie,
     wflw_xgboost_tweedie,
-    wflw_catboost_tweedie
+    # wflw_catboost_tweedie
 ) %>%
     modeltime_calibrate(testing(splits)) %>%
     mutate(.model_desc = ifelse(.model_id > 3, str_c(.model_desc, " - Tweedie"), .model_desc))
@@ -328,7 +328,7 @@ best_rmse_by_indentifier_tbl %>% count(name, sort = TRUE)
 # * Make an Ensemble ----
 
 ensemble_tbl <- calibration_tbl %>%
-    filter(.model_id %in% c(2, 5)) %>%
+    filter(.model_id %in% c(2, 3)) %>%
     ensemble_weighted(loadings = c(2, 3)) %>%
     modeltime_table()
 
